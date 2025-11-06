@@ -117,7 +117,7 @@ async function run() {
       const newUser = req.body;
       const email = req.body.email;
       const query = { email: email };
-      const existingUser = userCollection.findOne(query);
+      const existingUser = await userCollection.findOne(query);
       if (existingUser) {
         res.send({
           message: "user already exist. do not need to to insert again",
@@ -284,9 +284,9 @@ app.get("/", (req, res) => {
 });
 module.exports = app;
 
-// app.listen(port, () => {
-//   console.log("Smart server is  running on port", port);
-// });
+app.listen(port, () => {
+  console.log("Smart server is  running on port", port);
+});
 
 // client
 //   .connect()
