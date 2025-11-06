@@ -67,7 +67,8 @@ const verifyFirebaseToken = async (req, res, next) => {
     next();
     console.log("verify token", decoded);
   } catch (error) {
-    console.log(error);
+    // console.log(error);
+    return res.status(401).send({ message: "unauthorized access" });
   }
 };
 
@@ -281,10 +282,11 @@ run().catch(console.dir);
 app.get("/", (req, res) => {
   res.send("smart server is running");
 });
+module.exports = app;
 
-app.listen(port, () => {
-  console.log("Smart server is  running on port", port);
-});
+// app.listen(port, () => {
+//   console.log("Smart server is  running on port", port);
+// });
 
 // client
 //   .connect()
@@ -294,5 +296,3 @@ app.listen(port, () => {
 //     });
 //   })
 //   .catch(console.dir);
-
-module.exports = app;
