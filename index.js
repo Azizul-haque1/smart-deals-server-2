@@ -1,4 +1,3 @@
-// index.js
 const express = require("express");
 require("dotenv").config();
 const cors = require("cors");
@@ -13,19 +12,14 @@ app.use(cors());
 app.use(express.json());
 
 // Firebase Admin Initialization
-try {
-  const decoded = Buffer.from(
-    process.env.FIREBASE_SERVICE_KEY,
-    "base64"
-  ).toString("utf8");
-  const serviceAccount = JSON.parse(decoded);
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
-  console.log("✅ Firebase initialized");
-} catch (err) {
-  console.error("❌ Firebase initialization error:", err);
-}
+const decoded = Buffer.from(
+  process.env.FIREBASE_SERVICE_KEY,
+  "base64"
+).toString("utf8");
+const serviceAccount = JSON.parse(decoded);
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 
 // JWT verification middleware
 const verifyFirebaseToken = async (req, res, next) => {
@@ -60,8 +54,8 @@ const verifyJWTToken = (req, res, next) => {
   });
 };
 
-// MongoDB connection
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.apltpns.mongodb.net/${process.env.DB_NAME}?retryWrites=true&w=majority`;
+// MongoDB client setup
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.apltpns.mongodb.net/?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -70,125 +64,31 @@ const client = new MongoClient(uri, {
   },
 });
 
-let productsCollection, bidsCollection, usersCollection;
+let productsCollection;
+let bidsCollection;
+let usersCollection;
 
+// Async DB connect function
 async function connectDB() {
-  try {
+  if (!client.isConnected?.()) {
     await client.connect();
-    await client.db("admin").command({ ping: 1 });
-    console.log("✅ Connected to MongoDB");
-
-    const db = client.db(process.env.DB_NAME);
+    const db = client.db(process.env.DB_NAME || "smart_db");
     productsCollection = db.collection("products");
     bidsCollection = db.collection("bids");
     usersCollection = db.collection("users");
-  } catch (err) {
-    console.error("❌ MongoDB connection error:", err);
+    console.log("✅ Connected to MongoDB");
   }
 }
-connectDB();
 
-// ------------------- ROUTES ------------------- //
+// Routes
 
 // Root
 app.get("/", (req, res) => res.send("Smart server is running"));
 
-// Users
-app.post("/users", async (req, res) => {
-  try {
-    const newUser = req.body;
-    const existingUser = await usersCollection.findOne({
-      email: newUser.email,
-    });
-    if (existingUser) return res.send({ message: "User already exists." });
-
-    const result = await usersCollection.insertOne(newUser);
-    res.send(result);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({ message: "Database error" });
-  }
-});
-
-// JWT Token
-app.post("/getToken", (req, res) => {
-  try {
-    const loggedUser = req.body;
-    const token = jwt.sign(loggedUser, process.env.JWT_SECRET, {
-      expiresIn: "1h",
-    });
-    res.send({ token });
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({ message: "Token generation failed" });
-  }
-});
-
-// Products
-app.post("/products", verifyFirebaseToken, async (req, res) => {
-  try {
-    const newProduct = { ...req.body, created_at: new Date() };
-    const result = await productsCollection.insertOne(newProduct);
-    res.send(result);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({ message: "Failed to create product" });
-  }
-});
-
-app.get("/products", async (req, res) => {
-  try {
-    const query = req.query.email ? { email: req.query.email } : {};
-    const result = await productsCollection.find(query).toArray();
-    res.send(result);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({ message: "Failed to fetch products" });
-  }
-});
-
-app.get("/products/:id", async (req, res) => {
-  try {
-    const id = req.params.id;
-    const result = await productsCollection.findOne({ _id: new ObjectId(id) });
-    if (!result) return res.status(404).send({ message: "Product not found" });
-    res.send(result);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({ message: "Failed to fetch product" });
-  }
-});
-
-app.patch("/products/:id", async (req, res) => {
-  try {
-    const id = req.params.id;
-    const updated = req.body;
-    const result = await productsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updated }
-    );
-    res.send(result);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({ message: "Failed to update product" });
-  }
-});
-
-app.delete("/products/:id", async (req, res) => {
-  try {
-    const id = req.params.id;
-    const result = await productsCollection.deleteOne({
-      _id: new ObjectId(id),
-    });
-    res.send(result);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({ message: "Failed to delete product" });
-  }
-});
-
+// Latest products
 app.get("/latest-products", async (req, res) => {
   try {
+    await connectDB();
     const result = await productsCollection
       .find()
       .sort({ created_at: -1 })
@@ -201,9 +101,76 @@ app.get("/latest-products", async (req, res) => {
   }
 });
 
+// Products
+app.post("/products", verifyFirebaseToken, async (req, res) => {
+  try {
+    await connectDB();
+    const newProduct = req.body;
+    const result = await productsCollection.insertOne(newProduct);
+    res.send(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "Failed to add product" });
+  }
+});
+
+app.get("/products", async (req, res) => {
+  try {
+    await connectDB();
+    const query = {};
+    if (req.query.email) query.email = req.query.email;
+    const result = await productsCollection.find(query).toArray();
+    res.send(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "Failed to fetch products" });
+  }
+});
+
+app.get("/products/:id", async (req, res) => {
+  try {
+    await connectDB();
+    const result = await productsCollection.findOne({
+      _id: new ObjectId(req.params.id),
+    });
+    res.send(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "Failed to fetch product" });
+  }
+});
+
+// Users
+app.post("/users", async (req, res) => {
+  try {
+    await connectDB();
+    const newUser = req.body;
+    const existingUser = await usersCollection.findOne({
+      email: newUser.email,
+    });
+    if (existingUser) return res.send({ message: "User already exists." });
+
+    const result = await usersCollection.insertOne(newUser);
+    res.send(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "Failed to create user" });
+  }
+});
+
+// JWT
+app.post("/getToken", (req, res) => {
+  const loggedUser = req.body;
+  const token = jwt.sign(loggedUser, process.env.JWT_SECRET, {
+    expiresIn: "1h",
+  });
+  res.send({ token });
+});
+
 // Bids
 app.get("/bids", verifyFirebaseToken, async (req, res) => {
   try {
+    await connectDB();
     const query = {};
     const email = req.query.email;
     if (email) {
@@ -211,7 +178,7 @@ app.get("/bids", verifyFirebaseToken, async (req, res) => {
         return res.status(403).send({ message: "Forbidden access" });
       query.buyer_email = email;
     }
-    const result = await bidsCollection.find(query).toArray();
+    const result = await bidsCollection.find(query).sort({}).toArray();
     res.send(result);
   } catch (err) {
     console.error(err);
@@ -219,39 +186,15 @@ app.get("/bids", verifyFirebaseToken, async (req, res) => {
   }
 });
 
-app.get("/products/bids/:productID", verifyFirebaseToken, async (req, res) => {
-  try {
-    const productID = req.params.productID;
-    const result = await bidsCollection
-      .find({ product: productID })
-      .sort({ bid_price: -1 })
-      .toArray();
-    res.send(result);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({ message: "Failed to fetch product bids" });
-  }
-});
-
 app.post("/bids", async (req, res) => {
   try {
+    await connectDB();
     const newBid = req.body;
     const result = await bidsCollection.insertOne(newBid);
     res.send(result);
   } catch (err) {
     console.error(err);
     res.status(500).send({ message: "Failed to create bid" });
-  }
-});
-
-app.delete("/bids/:id", async (req, res) => {
-  try {
-    const id = req.params.id;
-    const result = await bidsCollection.deleteOne({ _id: new ObjectId(id) });
-    res.send(result);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({ message: "Failed to delete bid" });
   }
 });
 
