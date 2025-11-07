@@ -4,7 +4,6 @@ const cors = require("cors");
 const admin = require("firebase-admin");
 const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-const port = process.env.PORT || "https://smart-sever-3.vercel.app";
 
 const app = express();
 
@@ -13,11 +12,12 @@ app.use(cors());
 app.use(express.json());
 
 // Firebase Admin Initialization
-const decoded = Buffer.from(
+const decodedFirebaseKey = Buffer.from(
   process.env.FIREBASE_SERVICE_KEY,
   "base64"
 ).toString("utf8");
-const serviceAccount = JSON.parse(decoded);
+const serviceAccount = JSON.parse(decodedFirebaseKey);
+
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
@@ -33,7 +33,7 @@ const verifyFirebaseToken = async (req, res, next) => {
 
   try {
     const decoded = await admin.auth().verifyIdToken(token);
-    req.token_email = decoded.email;
+    req.firebase_email = decoded.email;
     next();
   } catch (err) {
     return res.status(401).send({ message: "Unauthorized access" });
@@ -50,12 +50,12 @@ const verifyJWTToken = (req, res, next) => {
 
   jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
     if (err) return res.status(401).send({ message: "Unauthorized access" });
-    req.token_email = decoded.email;
+    req.jwt_email = decoded.email;
     next();
   });
 };
 
-// MongoDB client setup
+// MongoDB setup
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.apltpns.mongodb.net/?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, {
   serverApi: {
@@ -65,13 +65,11 @@ const client = new MongoClient(uri, {
   },
 });
 
-let productsCollection;
-let bidsCollection;
-let usersCollection;
+let productsCollection, bidsCollection, usersCollection;
 
-// Async DB connect function
+// Connect to MongoDB
 async function connectDB() {
-  if (!client.isConnected?.()) {
+  if (!client.topology || !client.topology.isConnected()) {
     await client.connect();
     const db = client.db(process.env.DB_NAME || "smart_db");
     productsCollection = db.collection("products");
@@ -83,7 +81,6 @@ async function connectDB() {
 
 // Routes
 
-// Root
 app.get("/", (req, res) => res.send("Smart server is running"));
 
 // Latest products
@@ -102,12 +99,11 @@ app.get("/latest-products", async (req, res) => {
   }
 });
 
-// Products
+// Products routes
 app.post("/products", verifyFirebaseToken, async (req, res) => {
   try {
     await connectDB();
-    const newProduct = req.body;
-    const result = await productsCollection.insertOne(newProduct);
+    const result = await productsCollection.insertOne(req.body);
     res.send(result);
   } catch (err) {
     console.error(err);
@@ -141,7 +137,7 @@ app.get("/products/:id", async (req, res) => {
   }
 });
 
-// Users
+// Users routes
 app.post("/users", async (req, res) => {
   try {
     await connectDB();
@@ -159,7 +155,7 @@ app.post("/users", async (req, res) => {
   }
 });
 
-// JWT
+// JWT route
 app.post("/getToken", (req, res) => {
   const loggedUser = req.body;
   const token = jwt.sign(loggedUser, process.env.JWT_SECRET, {
@@ -168,14 +164,14 @@ app.post("/getToken", (req, res) => {
   res.send({ token });
 });
 
-// Bids
+// Bids routes
 app.get("/bids", verifyFirebaseToken, async (req, res) => {
   try {
     await connectDB();
     const query = {};
     const email = req.query.email;
     if (email) {
-      if (email !== req.token_email)
+      if (email !== req.firebase_email)
         return res.status(403).send({ message: "Forbidden access" });
       query.buyer_email = email;
     }
@@ -190,8 +186,7 @@ app.get("/bids", verifyFirebaseToken, async (req, res) => {
 app.post("/bids", async (req, res) => {
   try {
     await connectDB();
-    const newBid = req.body;
-    const result = await bidsCollection.insertOne(newBid);
+    const result = await bidsCollection.insertOne(req.body);
     res.send(result);
   } catch (err) {
     console.error(err);
@@ -199,5 +194,10 @@ app.post("/bids", async (req, res) => {
   }
 });
 
-// Export for Vercel
+// Start server
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`🚀 Server running on port ${port}`);
+});
+
 module.exports = app;
