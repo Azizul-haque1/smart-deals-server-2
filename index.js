@@ -171,8 +171,9 @@ app.get("/bids", verifyFirebaseToken, async (req, res) => {
     const query = {};
     const email = req.query.email;
     if (email) {
-      if (email !== req.firebase_email)
+      if (email !== req.firebase_email) {
         return res.status(403).send({ message: "Forbidden access" });
+      }
       query.buyer_email = email;
     }
     const result = await bidsCollection.find(query).sort({}).toArray();
