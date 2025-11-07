@@ -4,17 +4,11 @@ const cors = require("cors");
 const admin = require("firebase-admin");
 const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-
 const app = express();
 
 // Middleware
 app.use(cors());
 app.use(express.json());
-
-const logger = (req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  next();
-};
 
 // Firebase Admin Initialization
 const decoded = Buffer.from(
@@ -149,7 +143,7 @@ async function run() {
     });
 
     // Bids APIs
-    app.get("/bids", logger, verifyFirebaseToken, async (req, res) => {
+    app.get("/bids", verifyFirebaseToken, async (req, res) => {
       const query = {};
       const email = req.query.email;
       if (email) {
